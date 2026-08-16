@@ -1,96 +1,73 @@
-"""
-Update live crypto prices (USD and Toman) in the "Crypto Portfolio" Notion database.
+Run python update_crypto_prices.py
+Traceback (most recent call last):
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/urllib3/connection.py", line 204, in _new_conn
+    sock = connection.create_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/urllib3/util/connection.py", line 60, in create_connection
+    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/socket.py", line 974, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+socket.gaierror: [Errno -2] Name or service not known
 
-USD prices come from CoinGecko's free public API.
-The USD -> Toman conversion rate comes from Nobitex's public USDT/IRT market,
-since that reflects the real price Iranian traders pay for Tether (rather
-than an official/government exchange rate).
+The above exception was the direct cause of the following exception:
 
-Requires the environment variable NOTION_TOKEN (a Notion internal
-integration secret that has been shared/connected to the database).
-"""
+Traceback (most recent call last):
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/urllib3/connectionpool.py", line 788, in urlopen
+    response = self._make_request(
+               ^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/urllib3/connectionpool.py", line 488, in _make_request
+    raise new_e
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/urllib3/connectionpool.py", line 464, in _make_request
+    self._validate_conn(conn)
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/urllib3/connectionpool.py", line 1106, in _validate_conn
+    conn.connect()
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/urllib3/connection.py", line 759, in connect
+    self.sock = sock = self._new_conn()
+                       ^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/urllib3/connection.py", line 211, in _new_conn
+    raise NameResolutionError(self.host, self, e) from e
+urllib3.exceptions.NameResolutionError: HTTPSConnection(host='api.nobitex.ir', port=443): Failed to resolve 'api.nobitex.ir' ([Errno -2] Name or service not known)
 
-import os
-import sys
+The above exception was the direct cause of the following exception:
 
-import requests
+Traceback (most recent call last):
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/adapters.py", line 696, in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/urllib3/connectionpool.py", line 842, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/urllib3/util/retry.py", line 543, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='api.nobitex.ir', port=443): Max retries exceeded with url: /market/stats (Caused by NameResolutionError("HTTPSConnection(host='api.nobitex.ir', port=443): Failed to resolve 'api.nobitex.ir' ([Errno -2] Name or service not known)"))
 
-NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
-NOTION_VERSION = "2022-06-28"
+During handling of the above exception, another exception occurred:
 
-# Each entry maps a Notion page (one row in the database) to its
-# CoinGecko coin id, which is what the price API expects.
-COINS = [
-    {"page_id": "3bea057a-abc9-81a1-8c97-e384dc167a4a", "coingecko_id": "bitcoin", "name": "Bitcoin"},
-    {"page_id": "3bea057a-abc9-8194-9b02-de17b9c81b43", "coingecko_id": "ethereum", "name": "Ethereum"},
-    {"page_id": "3bea057a-abc9-81b9-9a2b-fae28715d647", "coingecko_id": "chainlink", "name": "Chainlink"},
-    {"page_id": "3bea057a-abc9-817f-a6b0-d36c42425529", "coingecko_id": "sonic-3", "name": "Sonic"},
-    {"page_id": "3bea057a-abc9-8160-833a-e55ade5a3546", "coingecko_id": "tether", "name": "Tether"},
-]
-
-
-def fetch_usd_prices() -> dict:
-    ids = ",".join(coin["coingecko_id"] for coin in COINS)
-    url = "https://api.coingecko.com/api/v3/simple/price"
-    resp = requests.get(url, params={"ids": ids, "vs_currencies": "usd"}, timeout=15)
-    resp.raise_for_status()
-    return resp.json()
-
-
-def fetch_usdt_toman_rate() -> float:
-    """Real USDT/Toman rate from Nobitex (an Iranian exchange)."""
-    url = "https://api.nobitex.ir/market/stats"
-    resp = requests.post(url, json={"srcCurrency": "usdt", "dstCurrency": "rls"}, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
-    rial_price = float(data["stats"]["usdt-rls"]["latest"])
-    return rial_price / 10  # Nobitex quotes Rial; 1 Toman = 10 Rial
-
-
-def update_notion_price(page_id: str, usd_price: float, toman_price: float) -> None:
-    url = f"https://api.notion.com/v1/pages/{page_id}"
-    headers = {
-        "Authorization": f"Bearer {NOTION_TOKEN}",
-        "Notion-Version": NOTION_VERSION,
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "properties": {
-            "Current Price": {"number": usd_price},
-            "Price (Toman)": {"number": toman_price},
-        }
-    }
-    resp = requests.patch(url, headers=headers, json=payload, timeout=15)
-    resp.raise_for_status()
-
-
-def main() -> None:
-    if not NOTION_TOKEN:
-        print("Missing NOTION_TOKEN environment variable.", file=sys.stderr)
-        sys.exit(1)
-
-    usd_prices = fetch_usd_prices()
-    usdt_toman_rate = fetch_usdt_toman_rate()
-    print(f"USDT/Toman rate (Nobitex): {usdt_toman_rate:,.0f}")
-
-    had_error = False
-    for coin in COINS:
-        usd_price = usd_prices.get(coin["coingecko_id"], {}).get("usd")
-        if usd_price is None:
-            print(f"WARNING: no USD price returned for {coin['name']} ({coin['coingecko_id']})")
-            had_error = True
-            continue
-        toman_price = usd_price * usdt_toman_rate
-        try:
-            update_notion_price(coin["page_id"], usd_price, toman_price)
-            print(f"OK: {coin['name']} -> ${usd_price} | {toman_price:,.0f} toman")
-        except requests.HTTPError as exc:
-            print(f"ERROR updating {coin['name']}: {exc} | {exc.response.text}")
-            had_error = True
-
-    if had_error:
-        sys.exit(1)
-
-
-if __name__ == "__main__":
+Traceback (most recent call last):
+  File "/home/runner/work/crypto-prices/crypto-prices/update_crypto_prices.py", line 96, in <module>
     main()
+  File "/home/runner/work/crypto-prices/crypto-prices/update_crypto_prices.py", line 73, in main
+    usdt_toman_rate = fetch_usdt_toman_rate()
+                      ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/crypto-prices/crypto-prices/update_crypto_prices.py", line 43, in fetch_usdt_toman_rate
+    resp = requests.post(url, json={"srcCurrency": "usdt", "dstCurrency": "rls"}, timeout=15)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/api.py", line 134, in post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/api.py", line 71, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/sessions.py", line 651, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/sessions.py", line 784, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/adapters.py", line 729, in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPSConnectionPool(host='api.nobitex.ir', port=443): Max retries exceeded with url: /market/stats (Caused by NameResolutionError("HTTPSConnection(host='api.nobitex.ir', port=443): Failed to resolve 'api.nobitex.ir' ([Errno -2] Name or service not known)"))
+Error: Process completed with exit code 1.
